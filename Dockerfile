@@ -27,6 +27,9 @@ COPY . .
 # Create necessary directories
 RUN mkdir -p database
 
+# Create database from CSV data
+RUN python scripts/database_creation.py
+
 # Expose Streamlit port
 EXPOSE 8501
 
