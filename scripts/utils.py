@@ -30,17 +30,6 @@ def validate_sql_query(
     """
     Validate SQL query for security. Returns (is_valid, error_message).
     If valid, error_message is empty string.
-    
-    Args:
-        sql_query: The SQL query to validate
-        question: Original user question (for logging)
-        execution_log_callback: Optional callback for logging
-        step_name: Name of the step for logging purposes
-        
-    Returns:
-        Tuple of (is_valid: bool, error_message: str)
-        - If valid: (True, "")
-        - If invalid: (False, user-friendly error message)
     """
     sql_validation_error_msg = "ERROR: I apologize, but I'm unable to process your question. Please rephrase it as a question about viewing or analyzing your transaction data."
     
@@ -53,7 +42,7 @@ def validate_sql_query(
         'VACUUM', 'PRAGMA', 'COMMIT', 'BEGIN', 'TRANSACTION', 'ROLLBACK'
     ]
     
-    # Check if query starts with SELECT (only SELECT queries are allowed)
+    # Check if query starts with SELECT
     if not sql_upper.startswith('SELECT'):
         if execution_log_callback:
             execution_log_callback({
@@ -93,10 +82,6 @@ def tool_generate_sql(
 ) -> str:
     """
     Tool: Generate SQL query from natural language question.
-    
-    Args:
-        bank_ids: List of bank IDs (required for filtering)
-        account_ids: List of account IDs (required for filtering)
     """
     # Validate mandatory parameters
     if not bank_ids or len(bank_ids) == 0:
@@ -127,7 +112,7 @@ def tool_generate_sql(
         account_filter = f"AND account_id IN ({account_ids_str})"
         filter_examples = f"\n                        - MANDATORY filter by bank_id: bank_id IN ({bank_ids_str})\n                        - MANDATORY filter by account_id: account_id IN ({account_ids_str})"
         
-        # Build prompt with date variables formatted, but keep {schema} and {question} as template variables
+        # Build prompt with date variables formatted
         current_date_ref_text = 'today (use DATE(\'now\'))' if not current_date else current_date
         
         prompt_text = f"""You are a SQL expert. Given a database schema and a natural language question, generate a SQL query to answer it.
@@ -236,9 +221,9 @@ def tool_generate_sql(
         # Add system message
         messages.append(("system", "You are a SQL expert. Generate only SQL queries without any explanation or markdown formatting."))
         
-        # Add chat history if available (limit to last 5 exchanges for SQL context)
+        # Add chat history if available
         if chat_history:
-            history_messages = chat_history.messages[-10:]  # Last 10 messages (5 exchanges)
+            history_messages = chat_history.messages[-10:]
             for msg in history_messages:
                 if isinstance(msg, HumanMessage):
                     messages.append(("human", f"Previous question: {msg.content}"))
@@ -255,14 +240,13 @@ def tool_generate_sql(
             "question": question
         })
         
-        raw_sql_output = response.content.strip()  # Store raw LLM output before processing
+        raw_sql_output = response.content.strip()
         # Remove markdown code blocks if present
         sql_query = re.sub(r'^```(?:sql)?\s*', '', raw_sql_output, flags=re.MULTILINE)
         sql_query = re.sub(r'\s*```$', '', sql_query, flags=re.MULTILINE)
         sql_query = sql_query.strip()
         
-        # ALWAYS add bank_id and account_id filters (they are mandatory)
-        # If not present, add them; if present, ensure they match the provided values
+        # ALWAYS add bank_id and account_id filters to the query
         bank_ids_str = ','.join(map(str, bank_ids))
         account_ids_str = ','.join(map(str, account_ids))
         
@@ -272,7 +256,7 @@ def tool_generate_sql(
             else:
                 sql_query = sql_query + f" WHERE bank_id IN ({bank_ids_str})"
         else:
-            # Replace existing bank_id filter to ensure correct values
+            # Replace existing bank_id filter
             sql_query = re.sub(
                 r'bank_id\s+IN\s*\([^)]+\)',
                 f'bank_id IN ({bank_ids_str})',
@@ -304,16 +288,14 @@ def tool_generate_sql(
         if not is_valid:
             return error_msg
         
-        # Store raw LLM output in chat_history (after successful validation)
+        # Store raw LLM output in chat_history
         if chat_history:
-            # Add raw SQL output (before filter processing) - this is the LLM's direct output
-            # Note: User question should already be added in process_question before calling this tool
-            # But add it here as a fallback if somehow missing (e.g., if tool called directly)
+            # Add raw SQL output
             if not chat_history.messages or not isinstance(chat_history.messages[-1], HumanMessage):
                 chat_history.add_user_message(question)
             chat_history.add_ai_message(raw_sql_output)
         
-        # Log execution if callback provided
+        # Log execution
         if execution_log_callback:
             execution_log_callback({
                 "step": "generate_sql",
@@ -350,7 +332,7 @@ def tool_execute_query(
         if not account_ids or len(account_ids) == 0:
             return f"ERROR: account_ids is required and must contain at least one ID"
         
-        # Replace or add bank_id filter if needed
+        # Replace or add bank_id filter
         if bank_ids and len(bank_ids) > 0:
             bank_ids_str = ','.join(map(str, bank_ids))
             if "bank_id" in query.lower():
@@ -361,13 +343,13 @@ def tool_execute_query(
                     flags=re.IGNORECASE
                 )
             else:
-                # Add bank_id filter if not present
+                # Add bank_id filter
                 if "WHERE" in query.upper():
                     query = query + f" AND bank_id IN ({bank_ids_str})"
                 else:
                     query = query + f" WHERE bank_id IN ({bank_ids_str})"
         
-        # Replace or add account_id filter if needed
+        # Replace or add account_id filter
         if account_ids and len(account_ids) > 0:
             account_ids_str = ','.join(map(str, account_ids))
             if "account_id" in query.lower():
@@ -378,7 +360,7 @@ def tool_execute_query(
                     flags=re.IGNORECASE
                 )
             else:
-                # Add account_id filter if not present
+                # Add account_id filter
                 if "WHERE" in query.upper():
                     query = query + f" AND account_id IN ({account_ids_str})"
                 else:
@@ -437,11 +419,6 @@ def tool_validate_question_context(
 ) -> str:
     """
     Tool: Validate if the question is related to bank transactions.
-    
-    Returns:
-        JSON string with validation result:
-        - If valid: {"valid": true, "error": null}
-        - If invalid: {"valid": false, "error": "error message"}
     """
     try:
         llm = ChatGroq(
@@ -670,7 +647,7 @@ def tool_analyze_results(
             
             is_record_list_question = "RECORD" in detection_result
         except Exception as e:
-            # On error, default to summary (safer fallback)
+            # On error, default to summary
             is_record_list_question = False
         
         # For record-list questions, convert directly to CSV format
@@ -683,7 +660,7 @@ def tool_analyze_results(
             all_rows_for_csv = preview_rows  # Default to preview rows
             if sql_query and db_connection_getter and total_count > len(preview_rows):
                 try:
-                    # Re-execute query to get ALL rows for CSV (filters should already be in the query)
+                    # Re-execute query to get ALL rows for CSV
                     conn = db_connection_getter()
                     df_all = pd.read_sql_query(sql_query, conn)
                     conn.close()
@@ -702,7 +679,7 @@ def tool_analyze_results(
                 df_full = pd.DataFrame(all_rows_for_csv)
                 csv_full = df_full.to_csv(index=False)
                 
-                # Return CSV with special marker prefix (preview CSV for display, full CSV for download)
+                # Return CSV with special marker prefix
                 intro_text = f"Found {total_count} transaction(s). Here is your CSV file:"
                 
                 return f"CSV_DATA:{intro_text}\nCSV_PREVIEW:\n{csv_preview}\nCSV_FULL:\n{csv_full}"
@@ -1029,7 +1006,7 @@ class TransactionQueryAgent:
                                 "answer": None
                             }
                     except (json.JSONDecodeError, KeyError) as e:
-                        # If parsing fails, allow through (fail open)
+                        # If parsing fails, allow through
                         pass
                     
                     intermediate_steps.append({
@@ -1039,9 +1016,9 @@ class TransactionQueryAgent:
                         "result": "Valid: Question is transaction-related"
                     })
                     
-                    # Store user question in chat_history at the start (only once)
+                    # Store user question in chat_history at the start
                     if self.chat_history and iteration == 1:
-                        # Check if already added (avoid duplicates)
+                        # Check if already added
                         if not self.chat_history.messages or not isinstance(self.chat_history.messages[-1], HumanMessage):
                             self.chat_history.add_user_message(question)
                     
@@ -1152,7 +1129,7 @@ class TransactionQueryAgent:
                             "result": f"Calculation failed: {calc_result}"
                         })
                 
-                # Step 4: Analyze results (with calculation result if available)
+                # Step 4: Analyze results
                 thought = "The query succeeded. Now I need to analyze the results and format the answer."
                 action = "analyze_results"
                 
@@ -1196,4 +1173,3 @@ class TransactionQueryAgent:
                 "success": False,
                 "error": f"Agent error: {str(e)}"
             }
-

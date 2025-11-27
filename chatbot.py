@@ -81,17 +81,6 @@ def get_unique_bank_ids() -> List[int]:
         return []
 
 
-def get_unique_account_ids() -> List[int]:
-    """Get unique account_id values from the database."""
-    try:
-        conn = get_db_connection()
-        df = pd.read_sql_query("SELECT DISTINCT account_id FROM transactions ORDER BY account_id", conn)
-        conn.close()
-        return sorted(df['account_id'].tolist())
-    except Exception as e:
-        return []
-
-
 def get_account_ids_by_bank_ids(bank_ids: List[int]) -> List[int]:
     """Get unique account_id values filtered by bank_ids."""
     if not bank_ids:
@@ -352,7 +341,7 @@ def main():
                             else:
                                 st.text(f"Step {i}: {str(step)[:200]}...")
                 
-                # Show execution log if available (show recent logs for this session)
+                # Show execution log if available
                 if st.session_state.execution_log:
                     with st.expander("🔍 View Agent Execution Log"):
                         # Show the most recent logs (last 10 entries)
@@ -367,7 +356,6 @@ def main():
         st.session_state.hide_examples = False
     
     # Check chat input FIRST to get prompt value early and hide examples before rendering them
-    # This ensures examples are hidden immediately when user presses enter
     prompt = st.chat_input("Ask about your transactions...")
     
     # Check if example question was selected
@@ -380,7 +368,7 @@ def main():
     if prompt:
         st.session_state.hide_examples = True
     
-    # Example questions above chat input (only show if no conversation and examples not hidden)
+    # Example questions above chat input
     if not st.session_state.conversation_history and not st.session_state.hide_examples:
         st.markdown("### 💡 Example Questions")
         st.markdown("Click on any question below to get started:")
@@ -412,12 +400,12 @@ def main():
                 st.error("❌ Please select at least one Account ID before submitting your question.")
             st.stop()
         
-        # Check spelling and correct internally (no UI shown to user)
+        # Check spelling and correct internally
         if api_key:
             corrected_prompt, _ = check_spelling(prompt, api_key)
             # Use corrected prompt automatically if different from original
             if corrected_prompt != prompt:
-                prompt = corrected_prompt  # Use corrected version
+                prompt = corrected_prompt 
         
         # Display user message
         with st.chat_message("user"):
@@ -495,7 +483,7 @@ def main():
                             with st.expander("🔍 View SQL Query"):
                                 st.code(result["sql_used"], language="sql")
                         
-                        # Always show agent steps if available
+                        # Show agent steps
                         intermediate_steps = result.get("intermediate_steps", [])
                         if intermediate_steps and len(intermediate_steps) > 0:
                             with st.expander("📋 View Agent Steps", expanded=False):
@@ -531,11 +519,10 @@ def main():
                         st.rerun()
                     else:
                         error_msg = result.get('error', 'Unknown error')
-                        # Strip "ERROR:" prefix if present for cleaner display
                         if error_msg.startswith("ERROR: "):
-                            error_msg = error_msg[7:]  # Remove "ERROR: " prefix
+                            error_msg = error_msg[7:] 
                         elif error_msg.startswith("ERROR:"):
-                            error_msg = error_msg[6:]  # Remove "ERROR:" prefix
+                            error_msg = error_msg[6:] 
                         message_placeholder.error(f"❌ {error_msg}")
     
     # Clear history button in sidebar
