@@ -47,14 +47,6 @@ env/
 *.ipynb_checkpoints/
 .ipynb_checkpoints/
 
-# Database
-database/*.db
-database/*.sqlite
-database/*.sqlite3
-*.db
-*.sqlite
-*.sqlite3
-
 # Data files (optional - uncomment if you don't want to track data files)
 # data/
 # *.csv
