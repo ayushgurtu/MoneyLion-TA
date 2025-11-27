@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  chatbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: transaction-query-assistant
+    ports:
+      - "8501:8501"
+    volumes:
+      # Mount database directory to persist data
+      - ./database:/app/database
+      # Mount .env file for environment variables (if exists)
+      - ./.env:/app/.env:ro
+    environment:
+      # Pass GROQ_API_KEY from environment or .env file
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import streamlit; import requests; requests.get('http://localhost:8501/_stcore/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - transaction-network
+
+networks:
+  transaction-network:
+    driver: bridge
+
