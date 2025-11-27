@@ -421,6 +421,224 @@ Note: The security validation layer checks every generated SQL query and blocks 
 - **Method**: LLM-based validation with explicit scope definition
 - **Error Handling**: Returns polite guidance message
 
+## Prompting Techniques & Strategies
+
+This project employs sophisticated prompting techniques to optimize LLM performance across different tasks. The following strategies are systematically applied:
+
+### 1. Few-Shot Learning
+
+**Implementation**: SQL Generation (`tool_generate_sql`)
+
+The SQL generation prompt includes 7 comprehensive examples covering:
+- Aggregation queries (SUM, COUNT)
+- Date-based filtering with SQLite functions
+- Merchant/category filtering with LIKE and LOWER()
+- GROUP BY queries for merchant analysis
+- Proper handling of debit (negative) vs credit (positive) amounts
+- Mandatory bank_id and account_id filtering
+
+**Example Structure**:
+```
+Example 1: Simple aggregation with date filter
+Example 2: Merchant filtering with date range
+Example 3: Category-based queries
+Example 4: Credit transaction queries
+Example 5: Complex filtering with multiple conditions
+Example 6: GROUP BY for top merchants (spending)
+Example 7: GROUP BY for top merchants (receiving)
+```
+
+**Benefit**: Helps the model learn complex SQL patterns, understand SQLite date functions, and consistently apply security constraints.
+
+### 2. Role-Based Prompting
+
+**Implementation**: All tool functions use specific system role definitions
+
+Each tool assigns a clear role to the LLM:
+- `tool_generate_sql`: "You are a SQL expert. Generate only SQL queries without any explanation or markdown formatting."
+- `tool_validate_question_context`: "You are a helpful assistant that determines if questions are related to bank transactions and financial data."
+- `tool_refine_query`: "You are a SQL expert. Fix SQL errors by refining queries."
+- `tool_analyze_results`: "You are a data analyst. Analyze query results and provide insights."
+- `tool_calculate`: "You are a calculator. Perform mathematical calculations accurately."
+- Spell checking: "You are a spelling and grammar checker."
+
+**Benefit**: Focuses the model's behavior on specific tasks, improving accuracy and reducing irrelevant outputs.
+
+### 3. Structured Output Prompting
+
+**Implementation**: Spell checking and question validation
+
+**Spell Checking** (`check_spelling`):
+```json
+{
+    "has_errors": true/false,
+    "corrected_question": "corrected version",
+    "corrections": [
+        {"original": "misspeled", "corrected": "misspelled"}
+    ]
+}
+```
+
+**Question Validation** (`tool_validate_question_context`):
+- Binary classification: "YES" or "NO"
+- Structured error messages with helpful guidance
+
+**Benefit**: Enables programmatic parsing and consistent error handling.
+
+### 4. Chain-of-Thought (CoT) Prompting
+
+**Implementation**: Query refinement (`tool_refine_query`)
+
+The refinement prompt provides:
+1. Original question (user intent)
+2. Original query (what was attempted)
+3. Error message (what went wrong)
+4. Database schema (what's available)
+
+The prompt explicitly asks the model to analyze the error before generating a fix:
+```
+"A SQL query failed with an error. Please fix it.
+[Original Question]
+[Original Query]
+[Error Message]
+[Database Schema]
+Please provide a corrected SQL query."
+```
+
+**Benefit**: Enables the model to reason through SQL errors systematically and generate more accurate corrections.
+
+### 5. Context-Aware Prompting
+
+**Implementation**: SQL generation and result analysis
+
+**Chat History Integration**:
+- Last 10 messages from `InMemoryChatMessageHistory` are included
+- Previous questions formatted as: "Previous question: {content}"
+- Previous answers formatted as: "Previous answer: {content[:200]}..."
+
+**Context Window**: Last 5 conversations (10 messages) to balance context vs. token usage
+
+**Benefit**: Enables follow-up questions, pronoun resolution, and maintains conversation coherence.
+
+### 6. Instruction-Based Prompting with Constraints
+
+**Implementation**: All prompts include explicit rules and constraints
+
+**SQL Generation Constraints**:
+- "ALWAYS filter by bank_id and account_id - these are MANDATORY for all queries"
+- "Return ONLY the SQL query, no markdown, no explanations"
+- "Use ONLY SQLite date/time functions"
+- "For money spent / debited → amounts are NEGATIVE"
+
+**Result Analysis Constraints**:
+- "Answer only what was asked, nothing more"
+- "Be brief and direct"
+- "Do not explain the data or provide context"
+- "Format currency amounts with dollar signs and proper commas"
+
+**Benefit**: Reduces hallucination, ensures security compliance, and maintains consistent output formatting.
+
+### 7. Error-Based Refinement Prompting
+
+**Implementation**: Query refinement with error context
+
+When a SQL query fails, the refinement prompt includes:
+- **Original Query**: What was attempted
+- **Error Message**: Exact database error (e.g., "no such column: date")
+- **Original Question**: User intent (to maintain semantic understanding)
+- **Schema**: Complete database structure for reference
+
+**Example**:
+```
+Original Query: SELECT * FROM transactions WHERE date >= ...
+Error Message: ERROR: no such column: date
+Schema: [Full table schema showing transaction_date column]
+```
+
+The model analyzes: "Error indicates column 'date' doesn't exist. Schema shows correct column is 'transaction_date'."
+
+**Benefit**: Enables targeted, context-aware error correction.
+
+### 8. Chain-of-Thought (CoT) Style Prompting
+
+**Implementation**: Query refinement (`tool_refine_query`)
+
+The refinement prompt structures context to encourage step-by-step reasoning by presenting information in logical sequence:
+
+1. **Original Question**: User intent (what they want)
+2. **Original Query**: What was attempted
+3. **Error Message**: What went wrong (exact database error)
+4. **Database Schema**: What's available (column names, data types)
+
+**Example Flow**:
+```
+Prompt Structure:
+"A SQL query failed with an error. Please fix it.
+
+Original Question: {question}
+Original Query: {original_query}
+Error Message: {error_message}
+Database Schema: {schema}
+
+Please provide a corrected SQL query."
+```
+
+**Reasoning Process**: The model analyzes: "Error indicates column 'date' doesn't exist. Schema shows correct column is 'transaction_date'. I'll replace 'date' with 'transaction_date' in the query."
+
+**Benefit**: Enables the model to reason through SQL errors systematically before generating corrections.
+
+### 9. Classification Prompting
+
+**Implementation**: Question validation and type detection
+
+**Binary Classification for Validation** (`tool_validate_question_context`):
+- Explicit categories: transaction-related vs. non-transaction-related
+- Clear "CAN" and "CANNOT" answer guidelines with examples
+- Single-word response format: "YES" or "NO"
+- Structured scope definition in prompt
+
+**Binary Classification for Question Type Detection**:
+- Categories: "RECORDS" (show/list/display) vs "SUMMARY" (how much/total)
+- Explicit examples for each category in prompt
+- Single-word response: "RECORDS" or "SUMMARY"
+
+**Benefit**: Simple, reliable classification with minimal parsing complexity and clear decision boundaries.
+
+### Template-Based Prompt Structure
+
+**Implementation**: LangChain's `ChatPromptTemplate` throughout all LLM interactions
+
+**Message Structure**:
+The project uses a structured message format with distinct message types:
+```python
+messages = [
+    ("system", "Role definition"),      # Sets the role/persona
+    ("human", "Previous question"),     # Context from chat history
+    ("assistant", "Previous answer"),   # Previous responses
+    ("human", "Current prompt with {variables}")  # Current task
+]
+```
+
+**Benefits**:
+- **Consistent Structure**: All prompts follow the same message type pattern across tools
+- **Easy Maintenance**: Centralized template structure makes updates easier
+- **Native Multi-Turn Support**: Built-in support for conversation history
+- **Type-Safe Variables**: Structured variable substitution reduces errors
+- **Role Separation**: Clear separation between system instructions, context, and current task
+
+**Usage Pattern**: Every tool function uses `ChatPromptTemplate.from_messages()` to create consistent, structured prompts that separate concerns (role, context, instructions).
+
+### Prompt Engineering Best Practices Applied
+
+1. **Clear Instructions**: Every prompt has explicit, unambiguous instructions
+2. **Comprehensive Examples**: Complex tasks (SQL generation) include 7+ diverse examples (few-shot learning)
+3. **Error Guidance**: Prompts include instructions for handling errors and edge cases
+4. **Security Emphasis**: Prompts explicitly state security requirements (instruction-based prompting)
+5. **Format Specification**: Output formats are clearly specified (JSON, plain text, SQL-only) via structured output prompting
+6. **Context Preservation**: Strategic inclusion of chat history for conversational flow (context-aware prompting)
+7. **Progressive Complexity**: Simple tasks use simple prompts; complex tasks use detailed examples
+8. **Fail-Safe Design**: Error handling prompts with fallback behaviors (e.g., "fail-open" for validation)
+
 ## Output Formats
 
 ### Summary Questions
