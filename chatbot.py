@@ -37,6 +37,12 @@ if 'execution_log' not in st.session_state:
     st.session_state.execution_log = []
 if 'llm_chat_history' not in st.session_state:
     st.session_state.llm_chat_history = InMemoryChatMessageHistory()
+if 'sql_cache' not in st.session_state:
+    st.session_state.sql_cache = {}
+if 'query_result_cache' not in st.session_state:
+    st.session_state.query_result_cache = {}
+if 'analysis_cache' not in st.session_state:
+    st.session_state.analysis_cache = {}
 
 
 def get_db_connection():
@@ -430,7 +436,10 @@ def main():
                         schema_getter=get_table_schema,
                         db_connection_getter=get_db_connection,
                         chat_history=st.session_state.llm_chat_history,
-                        execution_log_callback=log_callback
+                        execution_log_callback=log_callback,
+                        sql_cache=st.session_state.sql_cache,
+                        query_result_cache=st.session_state.query_result_cache,
+                        analysis_cache=st.session_state.analysis_cache
                     )
                     
                     # Get context from conversation history
@@ -555,6 +564,9 @@ def main():
                 st.session_state.conversation_history = []
                 st.session_state.execution_log = []
                 st.session_state.llm_chat_history.clear()
+                st.session_state.sql_cache = {}
+                st.session_state.query_result_cache = {}
+                st.session_state.analysis_cache = {}
                 st.session_state.hide_examples = False
                 st.rerun()
 

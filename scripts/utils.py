@@ -5,6 +5,7 @@ from typing import Optional, List, Dict, Any, Callable, Tuple
 import json
 import re
 import os
+import hashlib
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import StructuredTool
@@ -18,6 +19,47 @@ This module contains all agentic AI-related functionality including:
 - Tool functions for SQL generation, query execution, query refinement, result analysis, and calculations
 - TransactionQueryAgent class for orchestrating agentic workflows
 """
+
+# ==================== CACHE UTILITY FUNCTIONS ====================
+
+def get_cache_key(question: str, bank_ids: List[int], account_ids: List[int], 
+                  current_date: Optional[str] = None, cache_type: str = "sql") -> str:
+    """Generate a cache key from question and parameters."""
+    # Normalize inputs
+    question_lower = question.lower().strip()
+    bank_ids_sorted = tuple(sorted(bank_ids))
+    account_ids_sorted = tuple(sorted(account_ids))
+    date_str = current_date or "none"
+    
+    # Create a unique key
+    key_string = f"{cache_type}:{question_lower}:{bank_ids_sorted}:{account_ids_sorted}:{date_str}"
+    return hashlib.md5(key_string.encode()).hexdigest()
+
+def get_query_cache_key(query: str) -> str:
+    """Generate a cache key for a SQL query."""
+    # Normalize query
+    query_normalized = ' '.join(query.split()).upper()
+    key_string = f"query:{query_normalized}"
+    return hashlib.md5(key_string.encode()).hexdigest()
+
+def get_from_cache(cache_key: str, cache_dict: Optional[Dict[str, Any]]) -> Optional[Any]:
+    """Retrieve value from cache if it exists."""
+    if cache_dict is None:
+        return None
+    return cache_dict.get(cache_key)
+
+def set_cache(cache_key: str, value: Any, cache_dict: Optional[Dict[str, Any]], max_size: int = 100):
+    """Store value in cache with size limit."""
+    if cache_dict is None:
+        return
+    
+    # Remove oldest entry if cache is full (FIFO)
+    if len(cache_dict) >= max_size:
+        # Remove the first (oldest) entry
+        oldest_key = next(iter(cache_dict))
+        del cache_dict[oldest_key]
+    
+    cache_dict[cache_key] = value
 
 # ==================== HELPER FUNCTIONS ====================
 
@@ -78,7 +120,8 @@ def tool_generate_sql(
     account_ids: Optional[List[int]] = None,
     current_date: Optional[str] = None,
     chat_history: Optional[InMemoryChatMessageHistory] = None,
-    execution_log_callback: Optional[Callable] = None
+    execution_log_callback: Optional[Callable] = None,
+    sql_cache: Optional[Dict[str, str]] = None
 ) -> str:
     """
     Tool: Generate SQL query from natural language question.
@@ -88,6 +131,21 @@ def tool_generate_sql(
         return f"ERROR: bank_ids is required and must contain at least one ID"
     if not account_ids or len(account_ids) == 0:
         return f"ERROR: account_ids is required and must contain at least one ID"
+    
+    # Check cache first
+    if sql_cache is not None:
+        cache_key = get_cache_key(question, bank_ids, account_ids, current_date, "sql")
+        cached_sql = get_from_cache(cache_key, sql_cache)
+        if cached_sql:
+            if execution_log_callback:
+                execution_log_callback({
+                    "step": "generate_sql",
+                    "input": question,
+                    "output": f"[CACHED] {cached_sql[:100]}...",
+                    "timestamp": datetime.now().isoformat()
+                })
+            return cached_sql
+    
     try:
         llm = ChatGroq(
             groq_api_key=api_key,
@@ -369,6 +427,11 @@ def tool_generate_sql(
                 chat_history.add_user_message(question)
             chat_history.add_ai_message(raw_sql_output)
         
+        # Store in cache
+        if sql_cache is not None:
+            cache_key = get_cache_key(question, bank_ids, account_ids, current_date, "sql")
+            set_cache(cache_key, sql_query, sql_cache)
+        
         # Log execution
         if execution_log_callback:
             execution_log_callback({
@@ -396,7 +459,8 @@ def tool_execute_query(
     bank_ids: Optional[List[int]],
     account_ids: Optional[List[int]],
     get_db_connection_func: Callable,
-    execution_log_callback: Optional[Callable] = None
+    execution_log_callback: Optional[Callable] = None,
+    query_result_cache: Optional[Dict[str, str]] = None
 ) -> str:
     """Tool: Execute SQL query and return results as JSON string."""
     try:
@@ -406,7 +470,8 @@ def tool_execute_query(
         if not account_ids or len(account_ids) == 0:
             return f"ERROR: account_ids is required and must contain at least one ID"
         
-        # Replace or add bank_id filter
+        # Replace or add bank_id filter first 
+        original_query = query
         if bank_ids and len(bank_ids) > 0:
             bank_ids_str = ','.join(map(str, bank_ids))
             if "bank_id" in query.lower():
@@ -439,6 +504,20 @@ def tool_execute_query(
                     query = query + f" AND account_id IN ({account_ids_str})"
                 else:
                     query = query + f" WHERE account_id IN ({account_ids_str})"
+        
+        # Check cache after query normalization
+        if query_result_cache is not None:
+            cache_key = get_query_cache_key(query)
+            cached_result = get_from_cache(cache_key, query_result_cache)
+            if cached_result:
+                if execution_log_callback:
+                    execution_log_callback({
+                        "step": "execute_query",
+                        "input": query[:100] + "..." if len(query) > 100 else query,
+                        "output": "[CACHED] Query result retrieved from cache",
+                        "timestamp": datetime.now().isoformat()
+                    })
+                return cached_result
         
         conn = get_db_connection_func()
         df = pd.read_sql_query(query, conn)
@@ -473,7 +552,14 @@ def tool_execute_query(
         if execution_log_callback:
             execution_log_callback(log_entry)
         
-        return json.dumps(result, default=str)
+        exec_result = json.dumps(result, default=str)
+        
+        # Store in cache
+        if query_result_cache is not None:
+            cache_key = get_query_cache_key(query)
+            set_cache(cache_key, exec_result, query_result_cache)
+        
+        return exec_result
     except Exception as e:
         error_msg = f"ERROR: {str(e)}"
         if execution_log_callback:
@@ -924,7 +1010,10 @@ class TransactionQueryAgent:
         schema_getter: Optional[Callable] = None,
         db_connection_getter: Optional[Callable] = None,
         chat_history: Optional[InMemoryChatMessageHistory] = None,
-        execution_log_callback: Optional[Callable] = None
+        execution_log_callback: Optional[Callable] = None,
+        sql_cache: Optional[Dict[str, str]] = None,
+        query_result_cache: Optional[Dict[str, str]] = None,
+        analysis_cache: Optional[Dict[str, str]] = None
     ):
         """
         Initialize the TransactionQueryAgent.
@@ -953,6 +1042,9 @@ class TransactionQueryAgent:
         self.db_connection_getter = db_connection_getter
         self.chat_history = chat_history
         self.execution_log_callback = execution_log_callback
+        self.sql_cache = sql_cache
+        self.query_result_cache = query_result_cache
+        self.analysis_cache = analysis_cache
         self.max_retries = 3
         
         # Get schema if getter provided
@@ -1109,7 +1201,8 @@ class TransactionQueryAgent:
                         self.account_ids,
                         self.current_date,
                         self.chat_history,
-                        self.execution_log_callback
+                        self.execution_log_callback,
+                        self.sql_cache
                     )
                     if sql_result.startswith("ERROR"):
                         return {
@@ -1137,7 +1230,8 @@ class TransactionQueryAgent:
                     self.bank_ids,
                     self.account_ids,
                     self.db_connection_getter,
-                    self.execution_log_callback
+                    self.execution_log_callback,
+                    self.query_result_cache
                 )
                 
                 if exec_result.startswith("ERROR"):
