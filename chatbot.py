@@ -524,6 +524,28 @@ def main():
                         elif error_msg.startswith("ERROR:"):
                             error_msg = error_msg[6:] 
                         message_placeholder.error(f"❌ {error_msg}")
+                        
+                        # Show additional details in expanders even for errors
+                        if result.get("sql_used"):
+                            with st.expander("🔍 View SQL Query"):
+                                st.code(result["sql_used"], language="sql")
+                        
+                        if result.get("intermediate_steps"):
+                            with st.expander("📋 View Agent Steps"):
+                                for i, step in enumerate(result["intermediate_steps"], 1):
+                                    if isinstance(step, dict):
+                                        st.markdown(f"**Step {i}: {step.get('action', 'unknown')}**")
+                                        st.text(f"Thought: {step.get('thought', '')}")
+                                        st.text(f"Result: {step.get('result', '')[:300]}...")
+                                    else:
+                                        st.text(f"Step {i}: {str(step)[:200]}...")
+                        
+                        if st.session_state.execution_log:
+                            with st.expander("🔍 View Agent Execution Log"):
+                                for log_entry in st.session_state.execution_log[-10:]:
+                                    st.text(f"[{log_entry['step']}] {log_entry['output'][:200]}")
+                        
+                        st.caption(f"• {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
     # Clear history button in sidebar
     if st.session_state.conversation_history:
