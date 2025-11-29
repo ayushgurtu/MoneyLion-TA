@@ -10,6 +10,10 @@ from dotenv import load_dotenv
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
+from transformers import pipeline, Pipeline, AutoTokenizer, AutoModelForSequenceClassification
+import torch
+
+
 
 # Load environment variables
 load_dotenv()
@@ -43,6 +47,25 @@ if 'query_result_cache' not in st.session_state:
     st.session_state.query_result_cache = {}
 if 'analysis_cache' not in st.session_state:
     st.session_state.analysis_cache = {}
+if 'injection_classifier' not in st.session_state:
+    # Load the prompt injection detection model once at startup
+    # Model: protectai/deberta-v3-base-prompt-injection
+    # Reference: https://huggingface.co/protectai/deberta-v3-base-prompt-injection
+    
+    model_name = "protectai/deberta-v3-base-prompt-injection"
+    
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForSequenceClassification.from_pretrained(model_name)
+    classifier = pipeline(
+        "text-classification",
+        model=model,
+        tokenizer=tokenizer,
+        truncation=True,
+        max_length=512,
+        device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+    )
+    
+    st.session_state.injection_classifier = classifier
 
 
 def get_db_connection():
@@ -195,6 +218,42 @@ def check_spelling(question: str, api_key: Optional[str] = None) -> Tuple[str, L
     except Exception as e:
         # If LLM call fails, return original question
         return question, []
+
+
+def check_prompt_injection(user_input: str) -> Tuple[bool, str]:
+    """
+    Check if user input contains prompt injection attempts using 
+    protectai/deberta-v3-base-prompt-injection model.
+    
+    Args:
+        user_input: The user's input text
+        
+    Returns:
+        Tuple of (is_injection, message)
+        - is_injection: True if prompt injection detected, False otherwise
+        - message: Warning message if injection detected, empty string otherwise
+    """
+    if st.session_state.injection_classifier is None:
+        # If classifier is not available, skip check
+        return False, ""
+    
+    try:
+        # Use the cached classifier
+        result = st.session_state.injection_classifier(user_input)
+        
+        # Check if the label indicates injection (INJECTION)
+        label = result[0]['label']
+        
+        # INJECTION means injection detected, NO_INJECTION means no injection
+        is_injection = (label == 'INJECTION')
+        
+        if is_injection:
+            return True, "⚠️ Prompt injection detected. Please rephrase your question."
+        return False, ""
+    except Exception as e:
+        # If check fails, log but don't block the request
+        st.warning(f"Prompt injection check failed: {str(e)}")
+        return False, ""
 
 
 # ==================== MAIN APPLICATION ====================
@@ -395,6 +454,17 @@ def main():
                     st.rerun()
     
     if prompt:
+        # Check for prompt injection FIRST
+        is_injection, injection_message = check_prompt_injection(prompt)
+        
+        if is_injection:
+            with st.chat_message("user"):
+                st.write(prompt)
+            with st.chat_message("assistant"):
+                st.error(f"❌ {injection_message}")
+                st.info("💡 Please ask questions about your transactions without attempting to modify system behavior.")
+            st.stop()
+        
         # Validate mandatory fields
         if not selected_bank_ids:
             with st.chat_message("assistant"):
