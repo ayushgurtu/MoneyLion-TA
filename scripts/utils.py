@@ -186,8 +186,7 @@ def tool_generate_sql(
                         - For "last 7 days": datetime({date_ref}, '-7 days') to {datetime_ref_sql}
                         - For "last N months": DATE({date_ref}, '-N months')
                         - transaction_date is stored as DATETIME ('YYYY-MM-DD HH:MM:SS')
-                        - Use DATE(transaction_date) when comparing only dates
-                        - ALWAYS filter by bank_id and account_id - these are MANDATORY for all queries
+                        - Use DATE(transaction_date) when comparing only dates.
                         - Use LIKE or LOWER() for case-insensitive merchant/description/category matching
                         - Return ONLY the SQL query, no markdown, no explanations
 
