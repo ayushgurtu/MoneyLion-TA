@@ -25,6 +25,7 @@ Deployed Web Application URL: https://ayushgurtu-moneylion-ta-chatbot-zj79k7.str
 - **Dynamic Filtering**: Bank IDs and Account IDs are dynamically filtered and validated
 
 ### Security
+- **Prompt Injection Detection**: Uses Hugging Face's `protectai/deberta-v3-base-prompt-injection` model to detect and block prompt injection attacks
 - **SQL Injection Prevention**: Validates SQL queries to ensure they only contain SELECT statements
 - **Dangerous Operation Blocking**: Blocks DROP, DELETE, UPDATE, INSERT, ALTER, CREATE, TRUNCATE, and other dangerous SQL operations
 - **User-Friendly Error Messages**: Returns polite error messages for security violations
@@ -234,6 +235,9 @@ Core dependencies (see `requirements.txt`):
 - `langchain>=0.1.0` - LLM orchestration framework
 - `langchain-core>=0.1.0` - Core LangChain components
 - `langchain-groq>=0.1.0` - Groq LLM integration
+- `transformers>=4.30.0` - Hugging Face transformers library for ML models
+- `torch>=2.0.0` - PyTorch for model inference
+- `hf_xet>=0.0.1` - Hugging Face model loading utilities
 - `python-dotenv>=1.0.0` - Environment variable management
 - `sqlalchemy>=2.0.0` - Database toolkit
 
@@ -271,6 +275,16 @@ The agent uses specialized tools for different tasks:
 
 ## 🔒 Security Features
 
+### Prompt Injection Detection
+The application uses the [protectai/deberta-v3-base-prompt-injection](https://huggingface.co/protectai/deberta-v3-base-prompt-injection) model to detect and prevent prompt injection attacks. This model:
+- **High Accuracy**: Achieves 99.99% accuracy on evaluation sets
+- **Real-time Detection**: Analyzes user input before processing to detect malicious prompts
+- **Automatic Blocking**: Blocks detected injection attempts with user-friendly error messages
+- **Efficient Loading**: Model is loaded once at application startup and cached for optimal performance
+
+The prompt injection detection model is automatically loaded when the application starts. If the model fails to load, the application will continue to function but without prompt injection protection.
+
+### SQL Injection Prevention
 - **SQL Injection Prevention**: All queries are validated to ensure they only contain SELECT statements
 - **Dangerous Operation Blocking**: Blocks DROP, DELETE, UPDATE, INSERT, ALTER, CREATE, TRUNCATE operations
 - **Filter Enforcement**: All queries must include bank_id and account_id filters
@@ -288,6 +302,13 @@ If you see "GROQ_API_KEY Required" error:
 - Check that `.env` file exists and contains `GROQ_API_KEY`
 - Verify the API key is valid and has sufficient credits
 - Ensure the `.env` file is in the root directory of the project
+
+### Prompt Injection Model Loading Issues
+If you see warnings about prompt injection detection being unavailable:
+- Ensure `transformers`, `torch`, and `hf_xet` are installed: `pip install transformers torch hf_xet`
+- Check that you have sufficient disk space (model is ~0.2B parameters)
+- Verify internet connection for initial model download
+- The application will continue to function without prompt injection detection, but security will be reduced
 
 ### Port Already in Use
 If port 8501 is already in use:
