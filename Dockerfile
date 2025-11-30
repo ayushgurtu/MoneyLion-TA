@@ -30,11 +30,11 @@ RUN mkdir -p database data
 # Create database from CSV data
 # This allows the database to be created at runtime if CSV is mounted
 RUN if [ -f "data/data.csv" ]; then \
-        echo "📊 Creating database from CSV during build..."; \
-        python scripts/database_creation.py || echo "⚠️  Database creation failed during build, but continuing. Database can be created at runtime."; \
+        echo "Creating database from CSV during build..."; \
+        python scripts/database_creation.py || echo " Database creation failed during build, but continuing. Database can be created at runtime."; \
     else \
-        echo "⚠️  CSV file not found during build (data/data.csv)."; \
-        echo "   Database will be created at runtime if CSV is available."; \
+        echo "CSV file not found during build (data/data.csv)."; \
+        echo "Database will be created at runtime if CSV is available."; \
     fi || true
 
 # Expose Streamlit port
