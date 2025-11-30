@@ -1,4 +1,4 @@
-# Core dependencies for Transaction Query Assistant (Agentic AI)
+# Core dependencies for Transaction Query Assistant
 streamlit>=1.28.0
 pandas>=2.0.0
 
