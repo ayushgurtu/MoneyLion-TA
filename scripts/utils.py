@@ -166,9 +166,7 @@ def tool_generate_sql(
         # Build filter clauses for bank_id and account_id (mandatory fields)
         bank_ids_str = ','.join(map(str, bank_ids))
         account_ids_str = ','.join(map(str, account_ids))
-        bank_filter = f"AND bank_id IN ({bank_ids_str})"
-        account_filter = f"AND account_id IN ({account_ids_str})"
-        filter_examples = f"\n                        - MANDATORY filter by bank_id: bank_id IN ({bank_ids_str})\n                        - MANDATORY filter by account_id: account_id IN ({account_ids_str})"
+        filter_examples = f"\n  - MANDATORY filter by bank_id: bank_id IN ({bank_ids_str})\n  - MANDATORY filter by account_id: account_id IN ({account_ids_str})"
         
         # Build prompt with date variables formatted
         current_date_ref_text = 'today (use DATE(\'now\'))' if not current_date else current_date
@@ -186,7 +184,7 @@ def tool_generate_sql(
                         - For "last 7 days": datetime({date_ref}, '-7 days') to {datetime_ref_sql}
                         - For "last N months": DATE({date_ref}, '-N months')
                         - transaction_date is stored as DATETIME ('YYYY-MM-DD HH:MM:SS')
-                        - Use DATE(transaction_date) when comparing only dates.
+                        - Use DATE(transaction_date) when comparing only dates. {filter_examples}
                         - Use LIKE or LOWER() for case-insensitive merchant/description/category matching
                         - Return ONLY the SQL query, no markdown, no explanations
 
@@ -299,57 +297,13 @@ def tool_generate_sql(
             else:
                 sql_query = sql_query + f" WHERE bank_id IN ({bank_ids_str})"
         else:
-            # Extract bank_id values from the query
-            # Pattern 1: bank_id IN (1,2,3) or bank_id in (1,2,3)
-            bank_id_match = re.search(
-                r'bank_id\s+IN\s*\(([^)]+)\)',
+            # Replace existing bank_id filter
+            sql_query = re.sub(
+                r'bank_id\s+IN\s*\([^)]+\)',
+                f'bank_id IN ({bank_ids_str})',
                 sql_query,
                 flags=re.IGNORECASE
             )
-            # Pattern 2: bank_id IN 1,2,3 or bank_id in 1,2,3 (without parentheses)
-            if not bank_id_match:
-                bank_id_match = re.search(
-                    r'bank_id\s+IN\s+([0-9,\s]+)(?:\s|AND|OR|$|;|\))',
-                    sql_query,
-                    flags=re.IGNORECASE
-                )
-            # Pattern 3: bank_id = 1
-            if not bank_id_match:
-                bank_id_match = re.search(
-                    r'bank_id\s*=\s*(\d+)(?:\s|AND|OR|$|;|\))',
-                    sql_query,
-                    flags=re.IGNORECASE
-                )
-            
-            if bank_id_match:
-                # Parse the bank IDs from the query
-                query_bank_ids_str = bank_id_match.group(1)
-                # Extract numeric IDs (handle both comma-separated and whitespace)
-                query_bank_ids = set()
-                for id_str in re.split(r'[,\s]+', query_bank_ids_str):
-                    id_str = id_str.strip()
-                    if id_str and id_str.isdigit():
-                        query_bank_ids.add(int(id_str))
-                
-                # Check if query bank IDs are a subset of allowed bank IDs
-                allowed_bank_ids_set = set(bank_ids)
-                if not query_bank_ids.issubset(allowed_bank_ids_set):
-                    error_msg = "ERROR: I apologize, but I'm unable to process your question. Please rephrase it as a question about viewing or analyzing your transaction data."
-                    if execution_log_callback:
-                        execution_log_callback({
-                            "step": "generate_sql",
-                            "input": question,
-                            "output": f"The query contains bank_id values that are not in the allowed bank IDs. Allowed: {sorted(allowed_bank_ids_set)}, Found in query: {sorted(query_bank_ids)}",
-                            "timestamp": datetime.now().isoformat()
-                        })
-                    return error_msg
-                # If it's a valid subset, keep the query as is (don't replace)
-            else:
-                # If pattern doesn't match but bank_id is mentioned, add the filter
-                if "WHERE" in sql_query.upper():
-                    sql_query = sql_query + f" AND bank_id IN ({bank_ids_str})"
-                else:
-                    sql_query = sql_query + f" WHERE bank_id IN ({bank_ids_str})"
         
         if "account_id" not in sql_query.lower():
             if "WHERE" in sql_query.upper():
@@ -357,57 +311,13 @@ def tool_generate_sql(
             else:
                 sql_query = sql_query + f" WHERE account_id IN ({account_ids_str})"
         else:
-            # Extract account_id values from the query
-            # Pattern 1: account_id IN (1,2,3) or account_id in (1,2,3)
-            account_id_match = re.search(
-                r'account_id\s+IN\s*\(([^)]+)\)',
+            # Replace existing account_id filter to ensure correct values
+            sql_query = re.sub(
+                r'account_id\s+IN\s*\([^)]+\)',
+                f'account_id IN ({account_ids_str})',
                 sql_query,
                 flags=re.IGNORECASE
             )
-            # Pattern 2: account_id IN 1,2,3 or account_id in 1,2,3 (without parentheses)
-            if not account_id_match:
-                account_id_match = re.search(
-                    r'account_id\s+IN\s+([0-9,\s]+)(?:\s|AND|OR|$|;|\))',
-                    sql_query,
-                    flags=re.IGNORECASE
-                )
-            # Pattern 3: account_id = 1
-            if not account_id_match:
-                account_id_match = re.search(
-                    r'account_id\s*=\s*(\d+)(?:\s|AND|OR|$|;|\))',
-                    sql_query,
-                    flags=re.IGNORECASE
-                )
-            
-            if account_id_match:
-                # Parse the account IDs from the query
-                query_account_ids_str = account_id_match.group(1)
-                # Extract numeric IDs (handle both comma-separated and whitespace)
-                query_account_ids = set()
-                for id_str in re.split(r'[,\s]+', query_account_ids_str):
-                    id_str = id_str.strip()
-                    if id_str and id_str.isdigit():
-                        query_account_ids.add(int(id_str))
-                
-                # Check if query account IDs are a subset of allowed account IDs
-                allowed_account_ids_set = set(account_ids)
-                if not query_account_ids.issubset(allowed_account_ids_set):
-                    error_msg = "ERROR: I apologize, but I'm unable to process your question. Please rephrase it as a question about viewing or analyzing your transaction data."
-                    if execution_log_callback:
-                        execution_log_callback({
-                            "step": "generate_sql",
-                            "input": question,
-                            "output": f"The query contains account_id values that are not in the allowed account IDs. Allowed: {sorted(allowed_account_ids_set)}, Found in query: {sorted(query_account_ids)}",
-                            "timestamp": datetime.now().isoformat()
-                        })
-                    return error_msg
-                # If it's a valid subset, keep the query as is (don't replace)
-            else:
-                # If pattern doesn't match but account_id is mentioned, add the filter
-                if "WHERE" in sql_query.upper():
-                    sql_query = sql_query + f" AND account_id IN ({account_ids_str})"
-                else:
-                    sql_query = sql_query + f" WHERE account_id IN ({account_ids_str})"
         
         # Validate SQL query for dangerous operations
         is_valid, error_msg = validate_sql_query(
